@@ -19,8 +19,11 @@ func TestRuleWorkflowCallCheckWorkflowCallUsesFormat(t *testing.T) {
 		{"owner/repo/x.yml@@", true},
 		{"owner/repo/x.yml@release/v1", true},
 		{"./path/to/x.yml", true},
+		{"$/path/to/x.yml", true},
 		{"${{ env.FOO }}", true},
 		{"./path/to/x.yml@ref", false},
+		{"$/path/to/x.yml@ref", false},
+		{"$/", false},
 		{"/path/to/x.yml@ref", false},
 		{"./", false},
 		{".", false},
@@ -221,6 +224,12 @@ func TestRuleWorkflowCallCheckReusableWorkflowCall(t *testing.T) {
 			secrets: []string{"required_secret"},
 		},
 		{
+			what:    "self repository syntax",
+			uses:    "$/workflow0.yaml",
+			inputs:  []string{"required_input"},
+			secrets: []string{"required_secret"},
+		},
+		{
 			what:    "unknown workflow",
 			uses:    "./unknown-workflow.yaml",
 			inputs:  []string{"aaa", "bbb"},
@@ -250,6 +259,16 @@ func TestRuleWorkflowCallCheckReusableWorkflowCall(t *testing.T) {
 			},
 		},
 		{
+			what:    "undefined input and secret with self repository syntax",
+			uses:    "$/workflow0.yaml",
+			inputs:  []string{"required_input", "unknown_input"},
+			secrets: []string{"required_secret", "unknown_secret"},
+			errs: []string{
+				"input \"unknown_input\" is not defined in \"$/workflow0.yaml\" reusable workflow. defined inputs are \"optional_input\", \"required_input\"",
+				"secret \"unknown_secret\" is not defined in \"$/workflow0.yaml\" reusable workflow. defined secrets are \"optional_secret\", \"required_secret\"",
+			},
+		},
+		{
 			what:           "inherit secrets",
 			uses:           "./workflow0.yaml",
 			inputs:         []string{"required_input"},
@@ -259,6 +278,12 @@ func TestRuleWorkflowCallCheckReusableWorkflowCall(t *testing.T) {
 		{
 			what:    "read workflow",
 			uses:    "./ok.yaml", // Defined in testdata/reusable_workflow_metadata/ok.yaml
+			inputs:  []string{"input2"},
+			secrets: []string{"secret2"},
+		},
+		{
+			what:    "read workflow with self repository syntax",
+			uses:    "$/ok.yaml", // Defined in testdata/reusable_workflow_metadata/ok.yaml
 			inputs:  []string{"input2"},
 			secrets: []string{"secret2"},
 		},

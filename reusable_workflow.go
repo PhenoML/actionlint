@@ -196,7 +196,7 @@ func (c *LocalReusableWorkflowCache) writeCache(key string, val *ReusableWorkflo
 }
 
 // FindMetadata finds/parses a reusable workflow metadata located by the 'spec' argument. When project
-// is not set to 'proj' field or the spec does not start with "./", this method immediately returns with nil.
+// is not set to 'proj' field or the spec does not start with "./" or "$/", this method immediately returns with nil.
 //
 // Note that an error is not cached. At first search, let's say this method returned an error since
 // the reusable workflow is invalid. In this case, calling this method with the same spec later will
@@ -205,9 +205,11 @@ func (c *LocalReusableWorkflowCache) writeCache(key string, val *ReusableWorkflo
 //
 // Calling this method is thread-safe.
 func (c *LocalReusableWorkflowCache) FindMetadata(spec string) (*ReusableWorkflowMetadata, error) {
-	if c.proj == nil || !strings.HasPrefix(spec, "./") || ContainsExpression(spec) {
+	if c.proj == nil || !isLocalUsesSpec(spec) || ContainsExpression(spec) {
 		return nil, nil
 	}
+	displaySpec := spec
+	spec = normalizeLocalUsesSpec(spec)
 
 	if m, ok := c.readCache(spec); ok {
 		c.debug("Cache hit for %s: %v", spec, m)
@@ -218,14 +220,14 @@ func (c *LocalReusableWorkflowCache) FindMetadata(spec string) (*ReusableWorkflo
 	src, err := os.ReadFile(file)
 	if err != nil {
 		c.writeCache(spec, nil) // Remember the workflow file was not found
-		return nil, fmt.Errorf("could not read reusable workflow file for %q: %w", spec, err)
+		return nil, fmt.Errorf("could not read reusable workflow file for %q: %w", displaySpec, err)
 	}
 
 	m, err := parseReusableWorkflowMetadata(src)
 	if err != nil {
 		c.writeCache(spec, nil) // Remember the workflow file was invalid
 		msg := strings.ReplaceAll(err.Error(), "\n", " ")
-		return nil, fmt.Errorf("error while parsing reusable workflow %q: %s", spec, msg)
+		return nil, fmt.Errorf("error while parsing reusable workflow %q: %s", displaySpec, msg)
 	}
 
 	c.debug("New reusable workflow metadata at %s: %v", file, m)

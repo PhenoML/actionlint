@@ -328,7 +328,11 @@ func (rule *RuleAction) VisitStep(n *Step) error {
 
 	spec := e.Uses.Value
 
-	if strings.HasPrefix(spec, "./") {
+	if isLocalUsesSpec(spec) {
+		if !isLocalActionUsesSpec(spec) {
+			rule.invalidLocalActionFormat(e.Uses.Pos, spec, "ref should not be specified")
+			return nil
+		}
 		// Relative to repository root
 		rule.checkLocalAction(spec, e)
 		return nil
@@ -393,6 +397,10 @@ func (rule *RuleAction) checkRepoAction(spec string, exec *ExecAction) {
 
 func (rule *RuleAction) invalidActionFormat(pos *Pos, spec string, why string) {
 	rule.Errorf(pos, "specifying action %q in invalid format because %s. available formats are \"{owner}/{repo}@{ref}\" or \"{owner}/{repo}/{path}@{ref}\"", spec, why)
+}
+
+func (rule *RuleAction) invalidLocalActionFormat(pos *Pos, spec string, why string) {
+	rule.Errorf(pos, "specifying action %q in invalid format because %s. available format is \"$/{path}\"", spec, why)
 }
 
 func (rule *RuleAction) missingRunsProp(pos *Pos, prop, ty, action, path string) {

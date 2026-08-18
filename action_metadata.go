@@ -193,18 +193,22 @@ func (md *ActionMetadata) Path() string {
 // This cache is not available across multiple repositories. One LocalActionsCache instance needs
 // to be created per one repository.
 type LocalActionsCache struct {
-	mu    sync.RWMutex
-	proj  *Project // might be nil
-	cache map[string]*ActionMetadata
-	dbg   io.Writer
+	mu                            sync.RWMutex
+	proj                          *Project // might be nil
+	cache                         map[string]*ActionMetadata
+	missing                       map[string]bool
+	selfRepositoryMissingReported map[string]bool
+	dbg                           io.Writer
 }
 
 // NewLocalActionsCache creates new LocalActionsCache instance for the given project.
 func NewLocalActionsCache(proj *Project, dbg io.Writer) *LocalActionsCache {
 	return &LocalActionsCache{
-		proj:  proj,
-		cache: map[string]*ActionMetadata{},
-		dbg:   dbg,
+		proj:                          proj,
+		cache:                         map[string]*ActionMetadata{},
+		missing:                       map[string]bool{},
+		selfRepositoryMissingReported: map[string]bool{},
+		dbg:                           dbg,
 	}
 }
 
@@ -231,22 +235,49 @@ func (c *LocalActionsCache) readCache(key string) (*ActionMetadata, bool) {
 func (c *LocalActionsCache) writeCache(key string, val *ActionMetadata) {
 	c.mu.Lock()
 	c.cache[key] = val
+	if val != nil {
+		delete(c.missing, key)
+		delete(c.selfRepositoryMissingReported, key)
+	}
 	c.mu.Unlock()
 }
 
+func (c *LocalActionsCache) writeMissingCache(key string) {
+	c.mu.Lock()
+	c.cache[key] = nil
+	c.missing[key] = true
+	c.mu.Unlock()
+}
+
+func (c *LocalActionsCache) shouldReportSelfRepositoryMissing(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.missing[key] || c.selfRepositoryMissingReported[key] {
+		return false
+	}
+	c.selfRepositoryMissingReported[key] = true
+	return true
+}
+
 // FindMetadata finds metadata for given spec. The spec should indicate for local action hence it
-// should start with "./". The first return value can be nil even if error did not occur.
+// should start with "./" or "$/". The first return value can be nil even if error did not occur.
 // LocalActionCache caches that the action was not found. At first search, it returns an error that
 // the action was not found. But at the second search, it does not return an error even if the result
 // is nil. This behavior prevents repeating to report the same error from multiple places.
 // Calling this method is thread-safe.
 func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, error) {
-	if c.proj == nil || !strings.HasPrefix(spec, "./") {
+	if c.proj == nil || !isLocalUsesSpec(spec) || ContainsExpression(spec) {
 		return nil, false, nil
 	}
+	strictMissing := strings.HasPrefix(spec, "$/")
+	displaySpec := spec
+	spec = normalizeLocalUsesSpec(spec)
 
 	if m, ok := c.readCache(spec); ok {
 		c.debug("Cache hit for %s: %v", spec, m)
+		if m == nil && strictMissing && c.shouldReportSelfRepositoryMissing(spec) {
+			return nil, true, fmt.Errorf("could not find action metadata for %q", displaySpec)
+		}
 		return m, true, nil
 	}
 
@@ -255,7 +286,10 @@ func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, er
 	if !ok {
 		c.debug("No action metadata found in %s", dir)
 		// Remember action was not found
-		c.writeCache(spec, nil)
+		c.writeMissingCache(spec)
+		if strictMissing && c.shouldReportSelfRepositoryMissing(spec) {
+			return nil, false, fmt.Errorf("could not find action metadata for %q", displaySpec)
+		}
 		// Do not complain about the action does not exist (#25, #40).
 		// It seems a common pattern that the local action does not exist in the repository
 		// (e.g. Git submodule) and it is cloned at running workflow (due to a private repository).
