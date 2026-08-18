@@ -9,5 +9,7 @@ jobs:
       - uses: checkout@v2
       # ERROR: tag is empty
       - uses: 'docker://image:'
-      # ERROR: local action must start with './'
+      # ERROR: local action must start with './' or '$/'
       - uses: .github/my-actions/do-something
+      # ERROR: self-repository action cannot specify a ref
+      - uses: $/.github/actions/my-action@v1

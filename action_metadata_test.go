@@ -45,6 +45,7 @@ func testCheckActionMetadataPath(t *testing.T, dir string, m *ActionMetadata) {
 	t.Helper()
 
 	var want string
+	dir = normalizeLocalUsesSpec(dir)
 	d := filepath.Join("testdata", "action_metadata", dir)
 	for _, f := range []string{"action.yml", "action.yaml"} {
 		p := filepath.Join(d, f)
@@ -190,6 +191,28 @@ func TestLocalActionsFindMetadataOK(t *testing.T) {
 	}
 }
 
+func TestLocalActionsFindMetadataSelfRepositorySyntax(t *testing.T) {
+	proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
+	c := NewLocalActionsCache(proj, nil)
+
+	have, cached, err := c.FindMetadata("$/action-yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if have == nil {
+		t.Fatal("metadata is nil")
+	}
+	testCheckCachedFlag(t, false, cached)
+	testDiffActionMetadata(t, testGetWantedActionMetadata(), have)
+	testCheckActionMetadataPath(t, "$/action-yml", have)
+
+	_, cached, err = c.FindMetadata("./action-yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testCheckCachedFlag(t, true, cached)
+}
+
 func TestLocalActionsFindConcurrently(t *testing.T) {
 	n := 10
 	proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
@@ -253,6 +276,11 @@ func TestLocalActionsParsingSkipped(t *testing.T) {
 			proj: &Project{filepath.Join("testdata", "action_metadata"), nil},
 			spec: "./this-action-does-not-exist",
 		},
+		{
+			what: "self repository action with expression",
+			proj: &Project{filepath.Join("testdata", "action_metadata"), nil},
+			spec: "$/${{ matrix.action }}",
+		},
 	}
 
 	for _, tc := range tests {
@@ -268,6 +296,75 @@ func TestLocalActionsParsingSkipped(t *testing.T) {
 			testCheckCachedFlag(t, false, cached)
 		})
 	}
+}
+
+func TestLocalActionsSelfRepositorySyntaxMissingAction(t *testing.T) {
+	proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
+	c := NewLocalActionsCache(proj, nil)
+
+	m, cached, err := c.FindMetadata("$/this-action-does-not-exist")
+	if err == nil {
+		t.Fatal("error was not returned", m)
+	}
+	if want := `could not find action metadata for "$/this-action-does-not-exist"`; err.Error() != want {
+		t.Fatalf("expected error message %q but got %q", want, err.Error())
+	}
+	testCheckCachedFlag(t, false, cached)
+
+	m, cached, err = c.FindMetadata("$/this-action-does-not-exist")
+	if err != nil {
+		t.Fatal("error was returned at second try", err)
+	}
+	if m != nil {
+		t.Fatal("metadata was not nil even if it does not exist", m)
+	}
+	testCheckCachedFlag(t, true, cached)
+}
+
+func TestLocalActionsSelfRepositorySyntaxReportsMissingAfterRelativeSyntax(t *testing.T) {
+	proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
+	c := NewLocalActionsCache(proj, nil)
+
+	m, cached, err := c.FindMetadata("./this-action-does-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != nil {
+		t.Fatal("metadata was not nil even if it does not exist", m)
+	}
+	testCheckCachedFlag(t, false, cached)
+
+	m, cached, err = c.FindMetadata("$/this-action-does-not-exist")
+	if err == nil {
+		t.Fatal("error was not returned", m)
+	}
+	if want := `could not find action metadata for "$/this-action-does-not-exist"`; err.Error() != want {
+		t.Fatalf("expected error message %q but got %q", want, err.Error())
+	}
+	testCheckCachedFlag(t, true, cached)
+}
+
+func TestLocalActionsSelfRepositorySyntaxDoesNotReportInvalidMetadataAsMissing(t *testing.T) {
+	proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
+	c := NewLocalActionsCache(proj, nil)
+
+	m, cached, err := c.FindMetadata("./broken")
+	if err == nil {
+		t.Fatal("error was not returned", m)
+	}
+	if want := "could not parse action metadata"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected error message %q to contain %q", err, want)
+	}
+	testCheckCachedFlag(t, false, cached)
+
+	m, cached, err = c.FindMetadata("$/broken")
+	if err != nil {
+		t.Fatal("error was returned at second try", err)
+	}
+	if m != nil {
+		t.Fatal("metadata was not nil even if it is invalid", m)
+	}
+	testCheckCachedFlag(t, true, cached)
 }
 
 func TestLocalActionsIgnoreRemoteActions(t *testing.T) {

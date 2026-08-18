@@ -1724,8 +1724,10 @@ jobs:
       - uses: checkout@v2
       # ERROR: tag is empty
       - uses: 'docker://image:'
-      # ERROR: local action must start with './'
+      # ERROR: local action must start with './' or '$/'
       - uses: .github/my-actions/do-something
+      # ERROR: self-repository action cannot specify a ref
+      - uses: $/.github/actions/my-action@v1
 ```
 
 Output:
@@ -1747,21 +1749,26 @@ test.yaml:13:15: specifying action ".github/my-actions/do-something" in invalid 
    |
 13 |       - uses: .github/my-actions/do-something
    |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+test.yaml:15:15: specifying action "$/.github/actions/my-action@v1" in invalid format because ref should not be specified. available format is "$/{path}" [action]
+   |
+15 |       - uses: $/.github/actions/my-action@v1
+   |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ```
 
-[Playground](https://rhysd.github.io/actionlint/#eNpczbEOwyAMBNA9X+EtE0XqyNRfAWIBTbGj2K7Uv69olYXppHsnHVOAw6QuT04SFgBF0ZEAp5G44ZaM1NwrDvuRKB7yXwE4MEEJELM2JvG5Yt7ZdOKrfrzvk6wb5x3P4H3rsWBYJ7+VptWS7x93fWzshDtqbVS+AQAA//+oTjwo)
+[Playground](https://rhysd.github.io/actionlint/#eNpdzTEKwzAMQNE9p9BQyOSadvSUqziOsN3UVoikQG5f0uIOngR6X4iqg005DS+a2Q0AgizXBNi1sqHqQGetoubtL/sSC278qwAMKCM78EEyVbYhYVhJpeO2no5nJ+NCYcXdWZuLj+jGzu8xS9LZltO0HwsZpoKSco1dfbOtb/H/bjoeH1HNSiQ=)
 
 Action needs to be specified in a format defined in [the document][action-uses-doc]. There are 3 types of actions:
 
 - action hosted on GitHub: `owner/repo/path@ref`
-- local action: `./path/to/my-action`
+- local action: `./path/to/my-action` or `$/path/to/my-action`
 - Docker action: `docker://image:tag`
 
 actionlint checks values at `uses:` sections follow one of these formats.
 
-Note that actionlint does not report any error when a directory for a local action does not exist in the repository because it is
-a common case where the action is managed in a separate repository and the action directory is cloned at running the workflow.
-(See [#25][issue-25] and [#40][issue-40] for more details).
+Note that actionlint does not report any error when a directory for a `./` local action does not exist in the repository because
+it is a common case where the action is managed in a separate repository and the action directory is cloned at running the
+workflow. (See [#25][issue-25] and [#40][issue-40] for more details). `$/` always resolves to this repository at the running
+commit, so actionlint reports an error when the action metadata does not exist.
 
 <a id="check-local-action-inputs"></a>
 ## Local action inputs validation at `with:`
@@ -2264,7 +2271,7 @@ test.yaml:6:5: when a reusable workflow is called with "uses", "runs-on" is not 
   |
 6 |     runs-on: ubuntu-latest
   |     ^~~~~~~~
-test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref", "./path/to/workflow.yml", or "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
   |
 9 |     uses: ./.github/workflows/ci.yml@main
   |           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2285,11 +2292,11 @@ For example, `secrets:` is not available when running steps in a normal job. And
 a reusable workflow since the called workflow determines which OS is used. actionlint checks such keys are used correctly
 to call a reusable workflow or to run steps in a normal job.
 
-And the workflow syntax at `uses:` must follow the format `owner/repo/path/to/workflow.yml@ref` as described in
-[the official document][create-reusable-workflow-doc]. actionlint checks if the value follows the format.
+And the workflow syntax at `uses:` must follow one of these formats: `owner/repo/path/to/workflow.yml@ref`,
+`./path/to/workflow.yml`, or `$/path/to/workflow.yml`. actionlint checks if the value follows the format.
 
-actionlint also validates the called workflow file is actually existing when it is a local workflow (starting with `./`).
-actionlint reports an error when it does not exist.
+actionlint also validates the called workflow file is actually existing when it is a local workflow (starting with `./` or
+`$/`). actionlint reports an error when it does not exist.
 
 ### Check types of `inputs.*` and `secrets.*` in reusable workflow
 

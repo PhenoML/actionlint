@@ -13,3 +13,8 @@ jobs:
       - run: echo ${{ steps.my_action.outputs.some_value }}
       # ERROR: No output named 'some-value' (typo)
       - run: echo ${{ steps.my_action.outputs.some-value }}
+      # Self-repository syntax resolves the same local action metadata
+      - uses: $/.github/actions/my-action-with-output
+        id: my_action_self
+      # ERROR: No output named 'some-value' (typo)
+      - run: echo ${{ steps.my_action_self.outputs.some-value }}
